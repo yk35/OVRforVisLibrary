@@ -1,23 +1,5 @@
 #pragma once
 
-// Set Includes path
-// C:\Libraries\OculusSDK\LibOVR\Include
-// C:\Libraries\OculusSDK\LibOVR\Src
-
-// Set LibPath
-// C:\Libraries\OculusSDK\LibOVR\Lib\<Platform: ex Win32>\<Runtime ex:VS2010>
-
-// 以下のライブラリが必要?
-//libovr64.lib
-//winmm.lib
-//winsock2.lib
-
-//#ifdef DEBUG
-//#pragma comment(lib, "libovrd64.lib")
-//#else
-//#pragma comment(lib, "libovr64.lib")
-//#endif
-
 #include <stdexcept>
 #include <utility>
 #include <OVR.h>
@@ -43,7 +25,6 @@ public:
     static void init()
     {
         ovr_Initialize();
-        ovr_InitializeRenderingShim();
     }
 
     static void finish()
@@ -56,7 +37,7 @@ public:
         createDevice();
         configureTracking();
         configureRendering(hWnd, dc);
-        ovrHmd_SetEnabledCaps(m_hmd, ovrHmdCap_LowPersistence | ovrHmdCap_DynamicPrediction );
+        ovrHmd_SetEnabledCaps(m_hmd, ovrHmdCap_LowPersistence | ovrHmdCap_DynamicPrediction);
         if (directMode)
         {
             directRenderingTo(hWnd);
@@ -157,14 +138,13 @@ public:
         ovrTex.OGL.TexId = tex->handle();
         return ovrTex;
     }
-    std::vector<ovrGLTexture> getEyeTexture()
+    std::array<ovrGLTexture, 2> getEyeTextures()
     {
         auto tex = getRenderTexture();
-        ovrGLTexture ovrTex[2] = {
-            getEyeTexture(0),
-            getEyeTexture(1)
-        };
-        return std::vector<ovrGLTexture>(ovrTex, ovrTex+2);
+        std::array<ovrGLTexture, 2> ovrTex;
+        ovrTex[0] = getEyeTexture(0);
+        ovrTex[1] = getEyeTexture(1);
+        return ovrTex;
     }
 
 
@@ -228,10 +208,10 @@ public:
 
     void doRenderHmd(std::function<void(ovrEyeType, ovrRecti const& viewport, OVR::Matrix4f const& proj)> renderCallback)
     {
-        dismissHSW();
         using namespace OVR;
         ovrPosef headPose[2];
         getHmdPose(headPose);
+        dismissHSW();
         for (int eyeIndex = 0; eyeIndex < ovrEye_Count; eyeIndex++)
         {
             ovrEyeType eye = getEyeRenderOrder(eyeIndex);
@@ -246,23 +226,8 @@ public:
             renderCallback(eye, renderViewport, proj);
         }
         
-        auto eyeTex = getEyeTexture();
+        auto eyeTex = getEyeTextures();
         ovrHmd_EndFrame(getHmd(), headPose, (const ovrTexture*)eyeTex.data());
-    }
-
-    vl::uvec2 getRenderTargetSize()
-    {
-        // Configure Stereo settings.
-        ovrSizei recommenedTex0Size = ovrHmd_GetFovTextureSize(m_hmd, ovrEye_Left,
-            m_hmd->DefaultEyeFov[0], 1.0f);
-        ovrSizei recommenedTex1Size = ovrHmd_GetFovTextureSize(m_hmd, ovrEye_Right,
-            m_hmd->DefaultEyeFov[1], 1.0f);
-        ovrSizei renderTargetSize;
-        renderTargetSize.w = recommenedTex0Size.w + recommenedTex1Size.w;
-        renderTargetSize.h = std::max( recommenedTex0Size.h, recommenedTex1Size.h );
-        const int eyeRenderMultisample = 1;
-        m_renderTargetSize = vl::uvec2(renderTargetSize.w, renderTargetSize.h);
-        return m_renderTargetSize;
     }
 
 private:
@@ -298,8 +263,8 @@ private:
         ovrGLConfig cfg;
         memset(&cfg, 0, sizeof(cfg));
         cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
-        cfg.OGL.Header.RTSize.w = m_hmd->Resolution.w;
-        cfg.OGL.Header.RTSize.h = m_hmd->Resolution.h;
+        cfg.OGL.Header.BackBufferSize.w = m_hmd->Resolution.w;
+        cfg.OGL.Header.BackBufferSize.h = m_hmd->Resolution.h;
         cfg.OGL.Header.Multisample = 0;
         cfg.OGL.Window = hWnd;
         cfg.OGL.DC = dc;
@@ -309,6 +274,21 @@ private:
                                                         ovrDistortionCap_Overdrive,
                                                         eyeFov, eyeRenderDesc);
     }
+    vl::uvec2 getRenderTargetSize()
+    {
+        // Configure Stereo settings.
+        ovrSizei recommenedTex0Size = ovrHmd_GetFovTextureSize(m_hmd, ovrEye_Left,
+            m_hmd->DefaultEyeFov[0], 1.0f);
+        ovrSizei recommenedTex1Size = ovrHmd_GetFovTextureSize(m_hmd, ovrEye_Right,
+            m_hmd->DefaultEyeFov[1], 1.0f);
+        ovrSizei renderTargetSize;
+        renderTargetSize.w = recommenedTex0Size.w + recommenedTex1Size.w;
+        renderTargetSize.h = std::max( recommenedTex0Size.h, recommenedTex1Size.h );
+        const int eyeRenderMultisample = 1;
+        m_renderTargetSize = vl::uvec2(renderTargetSize.w, renderTargetSize.h);
+        return m_renderTargetSize;
+    }
+
     ovrSizei getRenderTargetSizeOvr()
     {
         // Configure Stereo settings.
@@ -330,9 +310,7 @@ private:
         }
         auto texSize = getRenderTargetSize();
         mTargetTex = new vl::Texture();
-        mTargetTex->createTexture2D(texSize.x(), texSize.y(), vl::TF_RGBA, false);
-        glBindTexture(GL_TEXTURE_2D, mTargetTex->handle());
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_ABGR_EXT, texSize.x(), texSize.y(), 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+        mTargetTex->createTexture2D(texSize.x(), texSize.y(), vl::TF_RGB, false);
         return mTargetTex;
     }
 
